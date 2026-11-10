@@ -1,0 +1,227 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum TokenType {
+  EMAIL_VERIFICATION
+  PASSWORD_RESET
+}
+
+enum WalletDirection {
+  CREDIT
+  DEBIT
+}
+
+enum TransactionStatus {
+  PENDING
+  COMPLETED
+  FAILED
+}
+
+enum ActivityStatus {
+  PENDING
+  COMPLETED
+  FAILED
+}
+
+enum ActivityType {
+  RESOURCE_VIEW
+  RESOURCE_PDF
+  RESOURCE_DOCX
+  SCHEME_OF_WORK
+  LESSON_PLAN
+  RECORDS_OF_WORK
+  EXAM
+  WALLET_TOPUP
+}
+
+enum DocumentType {
+  SCHEME_OF_WORK
+  LESSON_PLAN
+  RECORDS_OF_WORK
+  EXAM
+}
+
+model User {
+  id              String              @id @default(cuid())
+  email           String              @unique
+  passwordHash    String
+  name            String?
+  emailVerifiedAt DateTime?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  sessions        Session[]
+  tokens          AuthToken[]
+  wallet          Wallet?
+  transactions    WalletTransaction[]
+  activities      ActivityHistory[]
+  documents       GeneratedDocument[]
+  payments        MpesaPayment[]
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  tokenHash String   @unique
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+}
+
+model AuthToken {
+  id        String    @id @default(cuid())
+  tokenHash String    @unique
+  type      TokenType
+  userId    String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, type, expiresAt])
+}
+
+model CurriculumGrade {
+  id            String         @id @default(cuid())
+  number        Int            @unique
+  learningAreas LearningArea[]
+}
+
+model LearningArea {
+  id      String          @id @default(cuid())
+  name    String
+  gradeId String
+  grade   CurriculumGrade @relation(fields: [gradeId], references: [id], onDelete: Cascade)
+  strands Strand[]
+
+  @@unique([gradeId, name])
+  @@index([gradeId])
+}
+
+model Strand {
+  id             String       @id @default(cuid())
+  name           String
+  learningAreaId String
+  learningArea   LearningArea @relation(fields: [learningAreaId], references: [id], onDelete: Cascade)
+  subStrands     SubStrand[]
+
+  @@unique([learningAreaId, name])
+}
+
+model SubStrand {
+  id        String     @id @default(cuid())
+  name      String
+  strandId  String
+  strand    Strand     @relation(fields: [strandId], references: [id], onDelete: Cascade)
+  resources Resource[]
+
+  @@unique([strandId, name])
+}
+
+model Resource {
+  id          String    @id @default(cuid())
+  title       String
+  content     String    @db.Text
+  subStrandId String
+  subStrand   SubStrand @relation(fields: [subStrandId], references: [id], onDelete: Cascade)
+  isPublished Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([subStrandId, isPublished])
+}
+
+model Wallet {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  balance   Int      @default(0)
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model WalletTransaction {
+  id             String            @id @default(cuid())
+  userId         String
+  direction      WalletDirection
+  amount         Int
+  status         TransactionStatus @default(COMPLETED)
+  description    String
+  reference      String?           @unique
+  idempotencyKey String?
+  createdAt      DateTime          @default(now())
+  completedAt    DateTime?
+  user           User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  payment        MpesaPayment?
+
+  @@unique([userId, idempotencyKey])
+  @@index([userId, createdAt])
+}
+
+model MpesaPayment {
+  id                 String             @id @default(cuid())
+  userId             String
+  amount             Int
+  phone              String
+  idempotencyKey     String
+  status             TransactionStatus  @default(PENDING)
+  merchantRequestId  String?
+  checkoutRequestId  String?            @unique
+  mpesaReceiptNumber String?            @unique
+  resultCode         Int?
+  callbackTokenHash  String
+  transactionId      String?            @unique
+  createdAt          DateTime           @default(now())
+  completedAt        DateTime?
+  user               User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transaction        WalletTransaction? @relation(fields: [transactionId], references: [id])
+
+  @@unique([userId, idempotencyKey])
+  @@index([userId, createdAt])
+  @@index([merchantRequestId])
+}
+
+model ActivityHistory {
+  id          String         @id @default(cuid())
+  userId      String
+  type        ActivityType
+  title       String
+  detail      String
+  amount      Int?
+  status      ActivityStatus @default(COMPLETED)
+  referenceId String?
+  createdAt   DateTime       @default(now())
+  user        User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
+model GeneratedDocument {
+  id             String       @id @default(cuid())
+  userId         String
+  type           DocumentType
+  title          String
+  input          Json
+  content        String       @db.Text
+  markingScheme  String?      @db.Text
+  idempotencyKey String?
+  createdAt      DateTime     @default(now())
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, idempotencyKey])
+  @@index([userId, createdAt])
+}
+
+model RateLimitBucket {
+  key       String   @id
+  count     Int      @default(0)
+  expiresAt DateTime
+
+  @@index([expiresAt])
+}
